@@ -1,0 +1,486 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Golf</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f8ff;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .game-area {
+            position: relative;
+        }
+        canvas {
+            background-color: #7cfc00;
+            border: 4px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            width: 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        input[type="number"], input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        button {
+            padding: 10px;
+            background-color: #2c3e50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #34495e;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .hit-btn {
+            background-color: #e74c3c;
+            font-size: 1.2em;
+        }
+        .hit-btn:hover {
+            background-color: #c0392b;
+        }
+        .status-box {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #3498db;
+        }
+        .status-box p {
+            margin: 5px 0;
+            font-size: 1.1em;
+        }
+        #message {
+            font-weight: bold;
+            color: #d35400;
+            text-align: center;
+            min-height: 24px;
+        }
+        hr {
+            border: 0;
+            border-top: 1px solid #eee;
+            margin: 10px 0;
+        }
+        /* Grid explanation */
+        .hint {
+            font-size: 0.8em;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>⛳ Vector Golf</h1>
+
+    <div class="container">
+        <!-- Game Canvas -->
+        <div class="game-area">
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="panel">
+            <div class="status-box">
+                <p><strong>Hits:</strong> <span id="hitCount">0</span></p>
+                <p><strong>Current Pos:</strong> (<span id="ballX">0</span>, <span id="ballY">0</span>)</p>
+            </div>
+            
+            <p id="message">Welcome! Plot your vector.</p>
+
+            <div class="control-group">
+                <label for="angle">Angle (degrees):</label>
+                <input type="number" id="angle" placeholder="e.g., 45" value="45">
+                <span class="hint">0° is Right (East), 90° is Up (North)</span>
+            </div>
+
+            <div class="control-group">
+                <label for="length">Length (distance):</label>
+                <input type="number" id="length" placeholder="e.g., 100" value="100">
+            </div>
+
+            <button id="hitBtn" class="hit-btn" onclick="hitBall()">Hit Ball!</button>
+
+            <hr>
+
+            <!-- API Loader for Google Apps Script -->
+            <h3>Load Prebuilt Course</h3>
+            <div class="control-group">
+                <label for="gasLevel">Level ID:</label>
+                <input type="text" id="gasLevel" placeholder="e.g., 1" value="1">
+            </div>
+            <button id="loadBtn" onclick="loadCourse()">Load</button>
+            <button onclick="generateRandomCourse()">Generate Random Course</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gas_url="https://script.google.com/macros/s/AKfycbwQylMWvTuWLiGcKXLV8moynxUbhpYgDpYYo6VkHjstPmY_1BalbXWms0i70BcwZgF6/exec";
+        // Game State
+        let course = {
+            length: 800,
+            width: 600,
+            start: [100, 300],
+            hole: [700, 300],
+            obstacles: []
+        };
+        
+        let ball = { x: 0, y: 0 };
+        let hits = 0;
+        let isAnimating = false;
+        let gameOver = false;
+
+        // Constants
+        const BALL_RADIUS = 6;
+        const HOLE_RADIUS = 12;
+
+        // Initialize game
+        function init() {
+            generateRandomCourse();
+        }
+
+        function resetGame() {
+            ball.x = course.start[0];
+            ball.y = course.start[1];
+            hits = 0;
+            gameOver = false;
+            updateUI();
+            setMessage("Game reset. Plot your vector.");
+            draw();
+        }
+        function incircle(xy,xyr){
+            const res= (xy[0]-xyr[0])*(xy[0]-xyr[0]) + (xy[1]-xyr[1])*(xy[1]-xyr[1]) < xyr[2]*xyr[2];
+            console.log("check " + xy + " in " + xyr + " > "+ res);
+            return res;
+        }
+        function is_in(xy,circles){
+            let res=false;
+            circles.forEach(c => res |= incircle(xy,c));
+            return res;
+        }
+        function randball(){
+            return [
+                Math.floor(Math.random() * 50) + 50,
+                Math.floor(Math.random() * 500) + 50
+            ];
+        }
+        function randhole(){
+            return [
+                Math.floor(Math.random() * 150) + 600,
+                Math.floor(Math.random() * 400) + 100
+            ];
+        }
+        // Generate a random playable course
+        function generateRandomCourse() {
+            canvas.width=800;
+            canvas.height=600;
+            course.length = canvas.width;
+            course.width = canvas.height;
+
+            // Random water obstacles in the middle
+            course.obstacles = [];
+            let numObstacles = Math.floor(Math.random() * 8) + 5; // 3 to 6 obstacles
+            for(let i = 0; i < numObstacles; i++) {
+                const newobstacle=[
+                    Math.floor(Math.random() * 700) + 50, // x between 250 and 550
+                    Math.floor(Math.random() * 500) + 50, // y between 100 and 500
+                    Math.floor(Math.random() * 100) + 50    // radius 40 to 190
+                ];
+                course.obstacles.push(newobstacle);
+            }
+            do{
+                course.hole=randhole();
+                console.log("finding hole position: " + course.hole);
+            }while(is_in(course.hole,course.obstacles))
+
+            do{
+                course.start=randball();
+                console.log("finding ball position: " + course.start);
+            }while(is_in(course.start,course.obstacles))
+            
+            resetGame();
+        }
+
+        // Load course from external Google Apps Script URL
+        async function loadCourse() {
+            //const url = document.getElementById('gasUrl').value.trim();
+            const level = document.getElementById('gasLevel').value.trim();
+
+            setMessage("Loading course...");
+            document.getElementById('loadBtn').disabled = true;
+
+            try {
+                // Ensure the GAS script is set to handle CORS and return JSON MimeType
+                const response = await fetch(`${gas_url}?vglevel=${level}`,{method:"GET",redirect:"follow"});
+                if (!response.ok) throw new Error("Network response was not ok");
+                
+                const data = await response.json();
+                
+                // Validate data structure loosely
+                if (data.length && data.width && data.start && data.hole && data.obstacles) {
+                    course = data;
+                    // Adjust canvas size if course dimensions differ
+                    canvas.width = course.length;
+                    canvas.height = course.width;
+                    resetGame();
+                    setMessage(`Level ${level} loaded successfully!`);
+                } else {
+                    throw new Error("Invalid course data format.");
+                }
+            } catch (error) {
+                console.error(error);
+                setMessage("Error loading course. Check console or URL.");
+            } finally {
+                document.getElementById('loadBtn').disabled = false;
+            }
+        }
+
+        // Convert Math Cartesian coordinates to Canvas coordinates (0,0 at bottom-left)
+        function toCanvasX(x) { return x; }
+        function toCanvasY(y) { return course.width - y; }
+
+        // Render the current state
+        function draw(scaleOverride = 1, currentX = ball.x, currentY = ball.y) {
+            // 1. Clear background (grass)
+            ctx.fillStyle = '#7cfc00';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Draw faint grid (helps students estimate vectors)
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let x = 0; x <= course.length; x += 50) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, course.width);
+            }
+            for(let y = 0; y <= course.width; y += 50) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(course.length, y);
+            }
+            ctx.stroke();
+
+            // 3. Draw Water (Obstacles)
+            ctx.fillStyle = '#3498db'; // Water color
+            course.obstacles.forEach(obs => {
+                ctx.beginPath();
+                ctx.arc(toCanvasX(obs[0]), toCanvasY(obs[1]), obs[2], 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // 4. Draw Hole
+            ctx.fillStyle = '#2c3e50';
+            ctx.beginPath();
+            ctx.arc(toCanvasX(course.hole[0]), toCanvasY(course.hole[1]), HOLE_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw Flag for visibility
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(course.hole[0]), toCanvasY(course.hole[1]));
+            ctx.lineTo(toCanvasX(course.hole[0]), toCanvasY(course.hole[1]) - 30);
+            ctx.stroke();
+            ctx.fillStyle = '#e74c3c';
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(course.hole[0]), toCanvasY(course.hole[1]) - 30);
+            ctx.lineTo(toCanvasX(course.hole[0]) + 15, toCanvasY(course.hole[1]) - 20);
+            ctx.lineTo(toCanvasX(course.hole[0]), toCanvasY(course.hole[1]) - 10);
+            ctx.fill();
+
+            // 5. Draw Ball
+            ctx.fillStyle = 'white';
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 5 * scaleOverride; // Shadow grows as ball flies
+            ctx.beginPath();
+            ctx.arc(toCanvasX(currentX), toCanvasY(currentY), BALL_RADIUS * scaleOverride, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Reset shadow
+            ctx.shadowBlur = 0;
+        }
+
+        function hitBall() {
+            if (isAnimating || gameOver) return;
+
+            const angleDeg = parseFloat(document.getElementById('angle').value);
+            const length = parseFloat(document.getElementById('length').value);
+
+            if (isNaN(angleDeg) || isNaN(length)) {
+                setMessage("Please enter valid numbers for angle and length.");
+                return;
+            }
+
+            // Convert angle to radians
+            const angleRad = angleDeg * (Math.PI / 180);
+            
+            // Calculate displacement
+            const dx = length * Math.cos(angleRad);
+            const dy = length * Math.sin(angleRad);
+
+            const startX = ball.x;
+            const startY = ball.y;
+            const targetX = startX + dx;
+            const targetY = startY + dy;
+
+            hits++;
+            updateUI();
+            setMessage("Flying...");
+
+            animateFlight(startX, startY, targetX, targetY);
+        }
+
+        function animateFlight(startX, startY, targetX, targetY) {
+            isAnimating = true;
+            const length = parseFloat(document.getElementById('length').value);
+
+            document.getElementById('hitBtn').disabled = true;
+
+            const duration = 1200; // 1.2 seconds flight time
+            const startTime = performance.now();
+
+            function step(currentTime) {
+                let elapsed = currentTime - startTime;
+                let progress = Math.min(elapsed / duration, 1);
+
+                // Easing function (linear for X/Y)
+                let currentX = startX + (targetX - startX) * progress;
+                let currentY = startY + (targetY - startY) * progress;
+
+                // Parabolic scaling for Bird-eye view Z-axis simulation (starts 1, peaks at 2.5, ends 1)
+                let scale = 1 + Math.sin(progress * Math.PI) * length*1.5/Math.max(course.length,course.width);
+
+                draw(scale, currentX, currentY);
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    // Animation complete
+                    isAnimating = false;
+                    document.getElementById('hitBtn').disabled = false;
+                    ball.x = targetX;
+                    ball.y = targetY;
+                    draw(); // Draw final settled state
+                    checkPostFlightRules();
+                }
+            }
+
+            requestAnimationFrame(step);
+        }
+
+        // Distance formula
+        function dist(x1, y1, x2, y2) {
+            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+        }
+
+        function checkPostFlightRules() {
+            updateUI();
+
+            // 1. Check if in Hole
+            const dHole = dist(ball.x, ball.y, course.hole[0], course.hole[1]);
+            if (dHole <= HOLE_RADIUS) {
+                gameOver = true;
+                if (hits === 1) {
+                    setMessage("🎉 HOLE IN ONE! 🎉");
+                } else {
+                    setMessage(`🎉 Hole in ${hits} hits! 🎉`);
+                }
+                return;
+            }
+
+            // 2. Check if in Water (Obstacles)
+            for (let obs of course.obstacles) {
+                const dWater = dist(ball.x, ball.y, obs[0], obs[1]);
+                if (dWater <= obs[2]) {
+                    setMessage("💦 Splash! Ball landed in water. Resetting to start.");
+                    // Reset to start coordinates
+                    setTimeout(() => {
+                        ball.x = course.start[0];
+                        ball.y = course.start[1];
+                        draw();
+                        updateUI();
+                    }, 1500);
+                    return;
+                }
+            }
+
+            // 3. Check if out of bounds
+            if (ball.x < 0 || ball.x > course.length || ball.y < 0 || ball.y > course.width) {
+                setMessage("⚠️ Out of bounds! Resetting to start.");
+                setTimeout(() => {
+                    ball.x = course.start[0];
+                    ball.y = course.start[1];
+                    draw();
+                    updateUI();
+                }, 1500);
+                return;
+            }
+
+            setMessage("Safe! Plot your next vector.");
+        }
+
+        function updateUI() {
+            document.getElementById('hitCount').innerText = hits;
+            // Show coordinates rounded to 1 decimal point to avoid floating math mess
+            document.getElementById('ballX').innerText = ball.x.toFixed(1);
+            document.getElementById('ballY').innerText = ball.y.toFixed(1);
+        }
+
+        function setMessage(msg) {
+            document.getElementById('message').innerText = msg;
+        }
+
+        // Run game on load
+        window.onload = init;
+    </script>
+</body>
+</html>
+
